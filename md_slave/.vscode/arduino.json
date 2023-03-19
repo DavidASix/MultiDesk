@@ -1,0 +1,5 @@
+{
+    "board": "arduino:avr:nano",
+    "programmer": "arduino:avrispmkii",
+    "configuration": "cpu=atmega328"
+}
