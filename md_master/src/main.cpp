@@ -2,10 +2,9 @@
 #include <Keypad.h>
 #include "SoftwareSerial.h"
 
+SoftwareSerial btSerial(11, 10); // TX RX
 const int ROW_NUM = 4; //four rows
 const int COLUMN_NUM = 4; //four columns
-
-char txt;
 
 char keys[ROW_NUM][COLUMN_NUM] = {
   {'1','2','3', 'A'},
@@ -21,16 +20,14 @@ Keypad keypad = Keypad( makeKeymap(keys), pin_rows, pin_column, ROW_NUM, COLUMN_
 
 void setup(){
   Serial.begin(9600);
+  btSerial.begin(9600);
 }
 
 void loop(){
-   if(Serial.available()){
-    txt = Serial.read();
-  }
+  char k = keypad.getKey();
+  char* key = &k;
 
-  char key = keypad.getKey();
-
-  if (key){
-    Serial.write(key);
+  if (k){
+    btSerial.write(key);
   }
 }
