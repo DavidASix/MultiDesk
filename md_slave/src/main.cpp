@@ -13,6 +13,15 @@ int mp_i_input = A0;
 
 char txt;
 int del = 250;
+byte prevState = 0;
+
+int selected_hdmi = 0;
+int selected_usb = 0;
+
+int display_1_state = 0;
+int display_2_state = 0;
+int usb_state = 0;
+
 void setup()
 {
   Serial.begin(9600);
@@ -87,31 +96,34 @@ void buttonPressed(char bt_input)
   switch (bt_input)
   {
   case '1':
-    text = "Change All, Input 1";
+    selected_hdmi = 1;
+    selected_usb = 1;
     break;
   case '2':
-    text = "Change All, Input 2";
+    selected_hdmi = 2;
+    selected_usb = 2;
     break;
   case '3':
-    text = "Change All, Input 3";
+    selected_hdmi = 3;
+    selected_usb = 3;
     break;
   case '4':
-    text = "Change HDMI, Input 1";
+    selected_hdmi = 1;
     break;
   case '5':
-    text = "Change HDMI, Input 2";
+    selected_hdmi = 2;
     break;
   case '6':
-    text = "Change HDMI, Input 3";
+    selected_hdmi = 3;
     break;
   case '7':
-    text = "Change USB, Input 1";
+    selected_usb = 1;
     break;
   case '8':
-    text = "Change USB, Input 2";
+    selected_usb = 2;
     break;
   case '9':
-    text = "Change USB, Input 3";
+    selected_usb = 3;
     break;
   case 'A':
     text = "Moving all";
@@ -128,16 +140,24 @@ void buttonPressed(char bt_input)
 
 void loop()
 {
-  Serial.print("Input read: ");
   byte state = readInputMultiplexer();
-  for (int i = 0; i < 8; i++) {
-    // Use bitwise AND with a bit mask that has a 1 in the i-th bit and 0s elsewhere
-    // This will extract the i-th bit and discard all other bits
-    bool isBitSet = (state & (1 << i)) != 0;
-    Serial.print(isBitSet);
-}
+  if (prevState != state) {
+    Serial.print("Input read: ");
+    for (int i = 0; i < 8; i++) {
+      // Loop through each bit in the byte, and add them to the appropriate state. This results in knowing which 
+      bool isBitSet = (state & (1 << i)) != 0;
+      if (i < 3 && isBitSet) {
+        display_1_state = (i%3) + 1;
+      } else if (i < 6 && isBitSet) {
+        display_2_state = (i%3) + 1;
+      } else {
+        usb_state = (i%3) + 1;
+      }
+      Serial.print(isBitSet);
+    }
   Serial.println();
-  delay(500);
+  }
+  prevState = state;
   if (btSerial.available()) {
     txt = btSerial.read();
     if (strchr("123456789*0#ABCD", txt)) buttonPressed(txt);
