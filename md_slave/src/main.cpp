@@ -5,6 +5,7 @@ SoftwareSerial btSerial(3, 2); // TX RX
 int hdmi_1 = 4;
 int hdmi_2 = 5;
 int hdmi_3 = 6;
+int hdmis[3] = {hdmi_1, hdmi_2, hdmi_3};
 int mp_i_io = 13;
 int mp_i_a = 12;
 int mp_i_b = 11;
@@ -17,6 +18,7 @@ byte prevState = 0;
 
 int selected_hdmi = 0;
 int selected_usb = 0;
+byte selected_hdmi_state;
 
 int display_1_state = 0;
 int display_2_state = 0;
@@ -39,7 +41,30 @@ void setup()
   digitalWrite(mp_i_io, HIGH); // Disable the multiplexer initially
 }
 
-byte readInputMultiplexer()
+void printBits(byte j) {
+  for (int i = 0; i < 8; i++)
+  {
+    Serial.print(j >> i & 1);
+  }
+  Serial.println();
+  
+}
+
+/**
+ * This function simulates a click on any given pin.
+ * Pin ints used as arguments should corrospond to the center pin on a MOSFET
+**/
+void click(int pin)
+{
+  for (int i = 0; i < 3; i++)
+  {
+    digitalWrite(pin, i % 2);
+    // delay for 50ms after setting to high, and half that after setting to low
+    delay(50 / (((i+1) % 2) + 1));
+  }
+}
+
+byte getCurrentState()
 {
   /***
    * MAP
@@ -66,7 +91,6 @@ byte readInputMultiplexer()
 
     // Read the input from the multiplexer and store it in a bit variable
     int bitValue = digitalRead(mp_i_input);
-
     // Use bitwise OR and left shift to store the bit in the result byte
     result |= (bitValue << i);
     // Disable the multiplexer
@@ -78,88 +102,78 @@ byte readInputMultiplexer()
   return result;
 }
 
-void click(int hdmi)
-{
-  // Length of time "button" will be pressed for
-  int del = 50;
-  digitalWrite(hdmi, LOW);
-  delay(del / 2);
-  digitalWrite(hdmi, HIGH);
-  delay(del);
-  digitalWrite(hdmi, LOW);
-  delay(del / 2);
+/**
+ * This function checks each HDMI connection and lists which ports currently have a connection 
+ * Running this function WILL cycle the screens, so they all turn black momentarily.
+**/
+byte listConnectedDevices() {
+  byte states[3];
+  for (int i = 0; i<3; i++) {
+    states[i]  = getCurrentState();
+    click(hdmis[0]);
+    click(hdmis[1]);
+    delay(100);
+  }
+  byte availble_hdmi = states[0] | states[1] | states[2];
+  return availble_hdmi;
 }
 
-void buttonPressed(char bt_input)
-{
-  String text = "";
-  switch (bt_input)
+/**
+ * This function is called in a while loop after any bluetooth interaction.
+ * While the desired state != actual state, recurse.
+**/
+void moveDisplayInputs(byte connected, byte state) {
+  for (int i = 0; i < 2; i++)
   {
-  case '1':
-    selected_hdmi = 1;
-    selected_usb = 1;
-    break;
-  case '2':
-    selected_hdmi = 2;
-    selected_usb = 2;
-    break;
-  case '3':
-    selected_hdmi = 3;
-    selected_usb = 3;
-    break;
-  case '4':
-    selected_hdmi = 1;
-    break;
-  case '5':
-    selected_hdmi = 2;
-    break;
-  case '6':
-    selected_hdmi = 3;
-    break;
-  case '7':
-    selected_usb = 1;
-    break;
-  case '8':
-    selected_usb = 2;
-    break;
-  case '9':
-    selected_usb = 3;
-    break;
-  case 'A':
-    text = "Moving all";
-    click(hdmi_1);
-    click(hdmi_2);
-    break;
-  default:
-    text = "This was pressed: ";
-    break;
+      if (((connected >> (i*3)) & selected_hdmi_state) == 0) {
+      // Selected input is not plugged in, nothing to switch to.
+      // In this case, set all selected_hdmi_State bits to high. This makes any bitwise & logic default !=0 to true, which breaks the while loop.
+      selected_hdmi_state = 0b111;
+    } else if (((state >> (i*3)) & selected_hdmi_state) == 0) {
+      // Selected input IS plugged in, but is not currently active. Click once.
+      Serial.print("Clicking hdmi "); Serial.print(hdmis[i]);
+      click(hdmis[i]);
+    }
   }
-  Serial.print(text);Serial.print("|");
-  Serial.println(bt_input);
+  // else, selected input is active.
+}
+
+void btTextReceived(char bt_input)
+{
+  if (strchr("147", bt_input)) {
+    selected_hdmi_state = 0b001;
+  } else if (strchr("258", bt_input)) {
+    selected_hdmi_state = 0b010;
+  } else if (strchr("369", bt_input)) {
+    selected_hdmi_state = 0b100;
+  } else if (bt_input == 'A') {
+    click(hdmis[0]);
+    click(hdmis[1]);
+  }
 }
 
 void loop()
 {
-  byte state = readInputMultiplexer();
-  if (prevState != state) {
-    Serial.print("Input read: ");
-    for (int i = 0; i < 8; i++) {
-      // Loop through each bit in the byte, and add them to the appropriate state. This results in knowing which 
-      bool isBitSet = (state & (1 << i)) != 0;
-      if (i < 3 && isBitSet) {
-        display_1_state = (i%3) + 1;
-      } else if (i < 6 && isBitSet) {
-        display_2_state = (i%3) + 1;
-      } else {
-        usb_state = (i%3) + 1;
-      }
-      Serial.print(isBitSet);
-    }
-  Serial.println();
-  }
-  prevState = state;
+  // Read the incoming bluetooth signals
+  // strchr condition is in there to avoid accidental calls to btTextReceived when receiving line ends or BT disconnects
   if (btSerial.available()) {
     txt = btSerial.read();
-    if (strchr("123456789*0#ABCD", txt)) buttonPressed(txt);
+    if (strchr("123456789*0#ABCD", txt)) btTextReceived(txt);
+
+    byte state = getCurrentState();
+    // EDIT: if state = desired state, don't enter loop.
+    
+    byte connected = listConnectedDevices();
+    // Do not enter while loop if no devices are connected, as it  will loop infinitely
+    if (connected == 0) {
+      Serial.println("No connected devices");
+      return;
+    }
+
+    while (((selected_hdmi_state & state) == 0) && ((selected_hdmi_state & (state >> 3)) == 0))
+    {
+      moveDisplayInputs(connected, state);
+      state = getCurrentState();
+    }
   }
 }
